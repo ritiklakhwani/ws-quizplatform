@@ -19,7 +19,7 @@ const quizSchema = new mongoose.Schema({
   title: { type: String, required: true },
   questions: [
     {
-      title: { type: String, required: true },
+      text: { type: String, required: true },
       options: [String],
       correctOptionIndex: { type: Number, required: true },
     },

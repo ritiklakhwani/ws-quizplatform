@@ -15,7 +15,7 @@ const zodLogin = z.object({
 const quizSchema = z.object({
     title: z.string().min(3),
     questions: z.array(z.object({
-        title: z.string().min(3),
+        text: z.string().min(3),
         options: z.array(z.string()).min(2),
         correctOptionIndex: z.number().min(0)
     })).min(1)

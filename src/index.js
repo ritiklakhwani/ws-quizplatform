@@ -7,6 +7,7 @@ const { z, success } = require("zod");
 const jwt = require("jsonwebtoken");
 const { zodSchema, zodLogin, quizSchema } = require("./zod");
 const { authMiddleware, adminMiddleware } = require("./middleware");
+const { is } = require("zod/locales");
 const secret = process.env.JWT_SECRET;
 dotenv.config();
 
@@ -31,10 +32,12 @@ app.post("/api/auth/signup", async (req, res) => {
       });
     }
 
+    const hashedPasssword = await bcrypt.hash(data.password, 10);
+
     const newUser = await user.create({
       name: data.name,
       email: data.email,
-      password: data.password,
+      password: hashedPasssword,
       role: data.role,
     });
 
@@ -69,11 +72,25 @@ app.post("/api/auth/login", async (req, res) => {
 
     const existingUser = await user.findOne({
       email: data.email,
-      password: data.password,
     });
 
     if (!existingUser) {
-      return res.status(400).json({ error: "please signup first" });
+      return res.status(400).json({
+        success: false,
+        error: "user not found please signup first!",
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      data.password,
+      existingUser.password
+    );
+
+    if (!isPasswordValid) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid password",
+      });
     }
     const token = jwt.sign(
       {
@@ -108,7 +125,10 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
     });
   } catch (error) {
     console.log(error);
-    res.status(400).json({ success: false, error: "Unauthorized, token missing or invalid" });
+    res.status(400).json({
+      success: false,
+      error: "Unauthorized, token missing or invalid",
+    });
   }
 });
 
@@ -125,13 +145,7 @@ app.post("/api/quiz", async (req, res) => {
     }
     const Quiz = await quiz.create({
       title: data.title,
-      questions: [
-        {
-          text: data.questions[0].title,
-          options: data.questions[0].options,
-          correctOptionIndex: data.questions[0].correctOptionIndex,
-        },
-      ],
+      questions: data.questions,
     });
     res.status(201).json({
       success: true,
@@ -193,7 +207,6 @@ app.post("/api/quiz/:quizId/questions", async (req, res) => {
 
 app.get("/api/quiz/:quizId", async (req, res) => {
   try {
-
     const quizId = req.params.quizId;
     const existingQuiz = await quiz.findOne({ _id: quizId });
 
