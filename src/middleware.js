@@ -2,49 +2,73 @@ const jwt = require("jsonwebtoken");
 const secret = process.env.JWT_SECRET;
 
 function authMiddleware(req, res, next) {
-  const token = req.headers.token;
+  const token = req.headers.authorization;
+
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({
+      success: false,
+      error: "Unauthorized, token missing or invalid",
+    });
   }
+
   try {
     const decoded = jwt.verify(token, secret);
-    if (!decoded.id || !decoded.email || !decoded.role) {
+    if (!decoded || !decoded.id || !decoded.email || !decoded.role) {
       return res.status(401).json({
-        msg: "Unauthorized, token missing or invalid",
+        success: false,
+        error: "Unauthorized, token missing or invalid",
       });
     }
+
     req.id = decoded.id;
     req.name = decoded.name;
-    req.role = decoded.role;
     req.email = decoded.email;
+    req.role = decoded.role;
     next();
-  } catch (error) {
-    return res.status(401).json({ error: "Invalid token" });
+  } catch (err) {
+    return res.status(401).json({
+      success: false,
+      error: "Unauthorized, token missing or invalid",
+    });
   }
 }
 
 function adminMiddleware(req, res, next) {
-  const token = req.headers.token;
+  const token = req.headers.authorization;
+
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({
+      success: false,
+      error: "Unauthorized, token missing or invalid",
+    });
   }
+
   try {
     const decoded = jwt.verify(token, secret);
-    if (!decoded.id || !decoded.email || !decoded.role) {
+    if (!decoded || !decoded.id || !decoded.email || !decoded.role) {
       return res.status(401).json({
-        msg: "invalid token!",
+        success: false,
+        error: "Unauthorized, token missing or invalid",
       });
     }
-    if(decoded.role !== "admin"){
-      return res.status(401).json({ error: "Unauthorized", msg:"you are not a admin" });
+
+    if (decoded.role !== "admin") {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized, admin access required",
+      });
     }
+
     req.id = decoded.id;
     req.name = decoded.name;
-    req.role = decoded.role;
     req.email = decoded.email;
+    req.role = decoded.role;
     next();
-  } catch (error) {
-    return res.status(401).json({ error: "Invalid token" });
+  } catch (err) {
+    return res.status(401).json({
+      success: false,
+      error: "Unauthorized, token missing or invalid",
+    });
   }
 }
 

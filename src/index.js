@@ -1,29 +1,32 @@
 const dotenv = require("dotenv");
+dotenv.config();
+
 const express = require("express");
 const app = express();
 const bcrypt = require("bcrypt");
-const { user, quiz } = require("./db");
-const { z, success } = require("zod");
 const jwt = require("jsonwebtoken");
-const { zodSchema, zodLogin, quizSchema } = require("./zod");
+const { z } = require('zod')
+const { user, quiz } = require("./db");
+const { zodSchema, singleQuestionSchema, zodLogin, quizSchema } = require("./zod");
 const { authMiddleware, adminMiddleware } = require("./middleware");
-const { is } = require("zod/locales");
+
 const secret = process.env.JWT_SECRET;
-dotenv.config();
 
 app.use(express.json());
 
-//Auth Routes
+
 app.post("/api/auth/signup", async (req, res) => {
   try {
-    const { success, data } = zodSchema.safeParse(req.body);
-
-    if (!success) {
-      return res.status(400).json({ error: "Invalid data" });
+    const parsed = zodSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid request schema",
+      });
     }
+    const data = parsed.data;
 
     const existingUser = await user.findOne({ email: data.email });
-
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -32,16 +35,16 @@ app.post("/api/auth/signup", async (req, res) => {
       });
     }
 
-    const hashedPasssword = await bcrypt.hash(data.password, 10);
+    const hashedPassword = await bcrypt.hash(data.password, 10);
 
     const newUser = await user.create({
       name: data.name,
       email: data.email,
-      password: hashedPasssword,
+      password: hashedPassword,
       role: data.role,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: {
         _id: newUser._id,
@@ -50,30 +53,27 @@ app.post("/api/auth/signup", async (req, res) => {
         role: newUser.role,
       },
     });
-  } catch (error) {
-    console.log(error);
-    res.status(400).json({
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({
       success: false,
       error: "Invalid request schema",
-      details: { email: "Invalid email format" },
     });
   }
 });
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { success, data } = zodLogin.safeParse(req.body);
-
-    console.log(data);
-
-    if (!success) {
-      return res.status(400).json({ error: "Invalid data" });
+    const parsed = zodLogin.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid request schema",
+      });
     }
+    const data = parsed.data;
 
-    const existingUser = await user.findOne({
-      email: data.email,
-    });
-
+    const existingUser = await user.findOne({ email: data.email });
     if (!existingUser) {
       return res.status(400).json({
         success: false,
@@ -85,13 +85,13 @@ app.post("/api/auth/login", async (req, res) => {
       data.password,
       existingUser.password
     );
-
     if (!isPasswordValid) {
       return res.status(400).json({
         success: false,
         error: "Invalid password",
       });
     }
+
     const token = jwt.sign(
       {
         id: existingUser._id,
@@ -102,16 +102,15 @@ app.post("/api/auth/login", async (req, res) => {
       secret
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      data: { token: token },
+      data: { token },
     });
-  } catch (error) {
-    console.log(error);
-    res.status(400).json({
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({
       success: false,
       error: "Invalid request schema",
-      details: { email: "Invalid email format" },
     });
   }
 });
@@ -119,122 +118,137 @@ app.post("/api/auth/login", async (req, res) => {
 app.get("/api/auth/me", authMiddleware, (req, res) => {
   try {
     const { id, name, email, role } = req;
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      data: { _id: id, name: name, email: email, role: role },
+      data: { _id: id, name, email, role },
     });
-  } catch (error) {
-    console.log(error);
-    res.status(400).json({
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({
       success: false,
       error: "Unauthorized, token missing or invalid",
     });
   }
 });
 
-//Quiz Routes
-app.use(adminMiddleware);
-app.post("/api/quiz", async (req, res) => {
+
+app.post("/api/quiz", authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { success, data } = quizSchema.safeParse(req.body);
-    if (!success) {
+    const parsed = quizSchema.safeParse(req.body);
+    if (!parsed.success) {
       return res.status(400).json({
         success: false,
-        error: "Unauthorized, admin access required",
+        error: "Invalid request schema",
       });
     }
-    const Quiz = await quiz.create({
+    const data = parsed.data;
+
+    const created = await quiz.create({
       title: data.title,
-      questions: data.questions,
+      questions: data.questions.map((q) => ({
+        text: q.text,
+        options: q.options,
+        correctOptionIndex: q.correctOptionIndex,
+      })),
     });
-    res.status(201).json({
+
+    return res.status(201).json({
       success: true,
       data: {
-        success: true,
-        data: { _id: Quiz._id, title: Quiz.title },
+        _id: created._id,
+        title: created.title,
       },
     });
-  } catch (error) {
-    console.log(error);
-    res.status(400).json({ success: false, error: "Invalid request schema" });
-  }
-});
-
-app.post("/api/quiz/:quizId/questions", async (req, res) => {
-  try {
-    const quizId = req.params.quizId;
-    const { success, data } = quizSchema.safeParse(req.body);
-    if (!success) {
-      return res.status(400).json({
-        success: false,
-        error: "Unauthorized, admin access required",
-      });
-    }
-
-    const existingQuiz = await quiz.findOne({ _id: quizId });
-
-    if (!existingQuiz) {
-      return res.status(404).json({ success: false, error: "Quiz not found" });
-    }
-
-    existingQuiz.questions.push({
-      title: data.questions[0].title,
-      options: data.questions[0].options,
-      correctOptionIndex: data.questions[0].correctOptionIndex,
-    });
-    await existingQuiz.save();
-    res.status(200).json({
-      success: true,
-      data: {
-        quizId: existingQuiz._id,
-        question: {
-          _id: existingQuiz.questions[existingQuiz.questions.length - 1]._id,
-          title:
-            existingQuiz.questions[existingQuiz.questions.length - 1].title,
-          options:
-            existingQuiz.questions[existingQuiz.questions.length - 1].options,
-          correctOptionIndex:
-            existingQuiz.questions[existingQuiz.questions.length - 1]
-              .correctOptionIndex,
-        },
-      },
-    });
-  } catch (error) {
-    console.log(error);
-    res.status(400).json({ success: false, error: "Invalid request schema" });
-  }
-});
-
-app.get("/api/quiz/:quizId", async (req, res) => {
-  try {
-    const quizId = req.params.quizId;
-    const existingQuiz = await quiz.findOne({ _id: quizId });
-
-    if (!existingQuiz) {
-      return res.status(404).json({ success: false, error: "Quiz not found" });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        quizId: existingQuiz._id,
-        title: existingQuiz.title,
-        questions: existingQuiz.questions.map((q) => ({
-          _id: q._id,
-          title: q.title,
-          options: q.options,
-        })),
-      },
-    });
-  } catch (error) {
-    console.log(error);
-    res.status(400).json({
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({
       success: false,
-      error: "Quiz not found",
+      error: "Invalid request schema",
     });
   }
 });
 
-app.listen(3000, () => {
-  console.log("server started running on port 3000");
+app.post(
+  "/api/quiz/:quizId/questions",
+  authMiddleware,
+  adminMiddleware,
+  async (req, res) => {
+    try {
+      const quizId = req.params.quizId;
+      const parsed = singleQuestionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid request schema",
+        });
+      }
+      const data = parsed.data;
+
+      const existingQuiz = await quiz.findOne({ _id: quizId });
+      if (!existingQuiz) {
+        return res
+          .status(404)
+          .json({ success: false, error: "Quiz not found" });
+      }
+
+      existingQuiz.questions.push(data);
+      await existingQuiz.save();
+      const last = existingQuiz.questions[existingQuiz.questions.length - 1];
+
+      return res.status(201).json({
+        success: true,
+        data: {
+          quizId: existingQuiz._id,
+          question: {
+            _id: last._id,
+            text: last.text,
+            options: last.options,
+            correctOptionIndex: last.correctOptionIndex,
+          },
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid request schema" });
+    }
+  }
+);
+
+app.get(
+  "/api/quiz/:quizId",
+  authMiddleware,
+  adminMiddleware,
+  async (req, res) => {
+    try {
+      const quizId = req.params.quizId;
+      const existingQuiz = await quiz.findOne({ _id: quizId });
+
+      if (!existingQuiz) {
+        return res
+          .status(404)
+          .json({ success: false, error: "Quiz not found" });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          _id: existingQuiz._id,
+          title: existingQuiz.title,
+          questions: existingQuiz.questions,
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(404).json({ success: false, error: "Quiz not found" });
+    }
+  }
+);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`server started running on port ${PORT}`);
 });
+
+module.exports = app;
