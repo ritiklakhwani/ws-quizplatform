@@ -1,4 +1,4 @@
-const { z } = require("zod");
+ const { z } = require("zod");
 
 const zodSchema = z.object({
   name: z.string().min(3),
